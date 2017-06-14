@@ -76,7 +76,7 @@ public class BlockchainInfo {
 	public BlockchainInfo() {
 		HttpClientBuilder builder = HttpClients.custom();
 
-		HttpHost proxy = new HttpHost("www-proxy-us.boeing.com", 31060, "http");
+		HttpHost proxy = new HttpHost("PROXY HERE", PORT_HERE, "http");
 		DefaultProxyRoutePlanner routePlanner = new DefaultProxyRoutePlanner(proxy);
 		builder.setRoutePlanner(routePlanner);
 
