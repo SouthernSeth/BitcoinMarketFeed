@@ -12,12 +12,17 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.image.BufferedImage;
 import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.MalformedURLException;
 import java.text.DecimalFormat;
 import java.util.Date;
+import java.util.Properties;
 import java.util.Timer;
 import java.util.TimerTask;
 
@@ -51,7 +56,7 @@ public class BlockchainInfo {
 	public JFrame window;
 
 	public JPanel panel;
-	
+
 	public JMenuBar menuBar;
 	public JMenu file;
 	public JMenu convert;
@@ -68,15 +73,20 @@ public class BlockchainInfo {
 	public JCheckBox alwaysOnTop;
 
 	public double cost;
+	public double lastCost;
 	
-	public boolean firstLoad = true;
+	public int refreshRate;
+	
+	public Properties props;
 
 	public CloseableHttpClient client;
 
 	public BlockchainInfo() {
+		loadProperties();
+		
 		HttpClientBuilder builder = HttpClients.custom();
 
-		HttpHost proxy = new HttpHost("PROXY HERE", PORT_HERE, "http");
+		HttpHost proxy = new HttpHost("www-proxy-us.boeing.com", 31060, "http");
 		DefaultProxyRoutePlanner routePlanner = new DefaultProxyRoutePlanner(proxy);
 		builder.setRoutePlanner(routePlanner);
 
@@ -86,8 +96,6 @@ public class BlockchainInfo {
 		panel.setBackground(Color.WHITE);
 		panel.setLayout(new GridBagLayout());
 		panel.setPreferredSize(new Dimension(400,275));
-
-		cost = getLatestPrice();
 
 		BufferedImage newImg = null;
 
@@ -103,10 +111,10 @@ public class BlockchainInfo {
 		logo.setHorizontalAlignment(SwingConstants.CENTER);
 
 		Font f = new Font("Arial", Font.BOLD, 32);
-		costOfCoin = new JLabel(getSymbol() + "0.00");
+		costOfCoin = new JLabel(getSymbol() + "-.--");
 		costOfCoin.setHorizontalAlignment(SwingConstants.CENTER);
 		costOfCoin.setFont(f);
-		
+
 		//Character.toString((char) 9650) == UP
 		//Character.toString((char) 9660) == DOWN
 		Font f2 = new Font("Arial", Font.BOLD, 16);
@@ -123,7 +131,7 @@ public class BlockchainInfo {
 		alwaysOnTop = new JCheckBox("Always on top");
 		alwaysOnTop.setBackground(Color.WHITE);
 		alwaysOnTop.setHorizontalAlignment(SwingConstants.CENTER);
-		
+
 		menuBar = new JMenuBar();
 		file = new JMenu("File");
 		convert = new JMenu("Converter");
@@ -131,14 +139,14 @@ public class BlockchainInfo {
 		refresh = new JMenuItem("Refresh");
 		USDtoBTC = new JMenuItem("USD to BTC");
 		BTCtoUSD = new JMenuItem("BTC to USD");
-		
+
 		convert.add(USDtoBTC);
 		convert.add(BTCtoUSD);
-		
+
 		file.add(refresh);
 		file.addSeparator();
 		file.add(exit);
-		
+
 		menuBar.add(file);
 		menuBar.add(convert);
 
@@ -157,7 +165,7 @@ public class BlockchainInfo {
 		gbc.weightx = 0.5;
 		gbc.insets = new Insets(0, 0, 0, 0);
 		panel.add(costOfCoin, gbc);
-		
+
 		gbc = new GridBagConstraints();
 		gbc.fill = GridBagConstraints.HORIZONTAL;
 		gbc.gridx = 0;
@@ -207,55 +215,101 @@ public class BlockchainInfo {
 				}
 			}
 		});
-		
+
 		refresh.addActionListener(new ActionListener() {
 			@Override
 			public void actionPerformed(ActionEvent e) {
 				refresh();
 			}
 		});
-		
+
 		USDtoBTC.addActionListener(new ActionListener() {
 			@Override
 			public void actionPerformed(ActionEvent e) {
 				String input = JOptionPane.showInputDialog(window, "Please enter the amount in USD that you want to convert to BTC", "Convert USD to BTC", JOptionPane.QUESTION_MESSAGE);
 				double in = 0.0;
-				
+
 				try {
 					in = Double.parseDouble(input);
 				} catch (NumberFormatException e2) {
 					JOptionPane.showMessageDialog(window, "Your input was not a number!", "Convert USD to BTC", JOptionPane.ERROR_MESSAGE);
 					return;
 				}
-				
+
 				DecimalFormat format = new DecimalFormat("###,###,###,###.00");
-				
+
 				String output = convertUSDtoBTC(in);
 				JOptionPane.showMessageDialog(window, "$" + format.format(in) + " USD converts to " + output + " BTC @ $" + format.format(cost) + " per Bitcoin", "Convert USD to BTC", JOptionPane.INFORMATION_MESSAGE);
 			}
 		});
-		
+
 		BTCtoUSD.addActionListener(new ActionListener() {
 			@Override
 			public void actionPerformed(ActionEvent e) {
 				String input = JOptionPane.showInputDialog(window, "Please enter the amount in BTC that you want to convert to USD", "Convert BTC to USD", JOptionPane.QUESTION_MESSAGE);
 				double in = 0.0;
-				
+
 				try {
 					in = Double.parseDouble(input);
 				} catch (NumberFormatException e2) {
 					JOptionPane.showMessageDialog(window, "Your input was not a number!", "Convert BTC to USD", JOptionPane.ERROR_MESSAGE);
 					return;
 				}
-				
+
 				DecimalFormat format = new DecimalFormat("###,###,###,###.00");
-				
+
 				String output = convertBTCtoUSD(in);
 				JOptionPane.showMessageDialog(window, in + " BTC converts to $" + output + " USD @ $" + format.format(cost) + " per Bitcoin", "Convert BTC to USD", JOptionPane.INFORMATION_MESSAGE);
 			}
 		});
 
 		startUpdateTimer();
+	}
+	
+	public void loadProperties() {
+		File file = new File(System.getProperty("user.home") + "/.bitcoinMarket");
+		props = new Properties();
+		
+		props.setProperty("lastValue", "0.00");
+		props.setProperty("refreshRate", "5");
+		
+		if (!file.exists()) {
+			try {
+				file.createNewFile();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+			
+			try {
+				props.store(new FileOutputStream(file), null);
+			} catch (FileNotFoundException e) {
+				e.printStackTrace();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		} else {
+			try {
+				props.load(new FileInputStream(file));
+			} catch (FileNotFoundException e) {
+				e.printStackTrace();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		}
+		
+		lastCost = Double.parseDouble(props.getProperty("lastValue").replaceAll(",", ""));
+		refreshRate = Integer.parseInt(props.getProperty("refreshRate"));
+	}
+	
+	public void saveProperties() {
+		File file = new File(System.getProperty("user.home") + "/.bitcoinMarket");
+		try {
+			props.store(new FileOutputStream(file), null);
+		} catch (FileNotFoundException e) {
+			e.printStackTrace();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
 	}
 
 	public BufferedImage resize(BufferedImage img, int w, int h) {
@@ -442,11 +496,11 @@ public class BlockchainInfo {
 
 		return "";
 	}
-	
+
 	public String convertUSDtoBTC(double value) {
 		try {
 			cost = getLatestPrice();
-			
+
 			HttpGet request = new HttpGet("https://blockchain.info/tobtc?currency=USD&value=" + value);
 			HttpResponse response = client.execute(request);
 
@@ -471,16 +525,16 @@ public class BlockchainInfo {
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
-		
+
 		return "";
 	}
-	
+
 	public String convertBTCtoUSD(double value) {
 		cost = getLatestPrice();
 		double toUSD = value * cost;
-		
+
 		DecimalFormat format = new DecimalFormat("###,###,###,###.00");
-		
+
 		return format.format(toUSD);
 	}
 
@@ -491,21 +545,19 @@ public class BlockchainInfo {
 			public void run() {
 				refresh();
 			}
-		}, 0L, 60000L);
+		}, 0L, refreshRate * 60 * 1000);
 	}
-	
+
 	public void refresh() {
-		double change = getLatestPrice() - cost;
-		
-		if (firstLoad) {
-			firstLoad = false;
-			change = get15mPrice() - cost;
-		}
-		
 		cost = getLatestPrice();
+		double change = lastCost - cost;
 		
+		if (change == -cost) {
+			change = 0.0;
+		}
+
 		DecimalFormat format = new DecimalFormat("###,###,###,##0.00");
-		
+
 		if (change < 0) {
 			changeStatus.setForeground(Color.RED);
 			changeStatus.setText(Character.toString((char) 9660) + " $" + format.format(change));
@@ -516,11 +568,14 @@ public class BlockchainInfo {
 			changeStatus.setForeground(Color.GRAY);
 			changeStatus.setText(Character.toString((char) 9632) + " $-.--");
 		}
-		
+
 		String n1 = format.format(cost);
 
 		costOfCoin.setText(getSymbol() +  n1);
 		lastUpdated.setText("Last updated @ " + new Date());
+		
+		props.setProperty("lastValue", n1);
+		saveProperties();
 	}
 
 	public static void main(String[] args) {
@@ -535,7 +590,7 @@ public class BlockchainInfo {
 		} catch (UnsupportedLookAndFeelException e) {
 			e.printStackTrace();
 		}
-		
+
 		new BlockchainInfo();
 	}
 
